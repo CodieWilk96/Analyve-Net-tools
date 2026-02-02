@@ -5,13 +5,13 @@
 To install, clone the rep0 --  Enter the "network-toolkit" directory in the repo: *cd network-toolkit* -- Run the main script: *./toolkit.sh*
 
 ## Intention For Toolkit
-This toolkit is intended to provide convenience, productivity, and simplicity for networking professionals, or individuals new to the subject, or generally anyone who wants to secure and maintain a network. Once you are inside the toolkit's interface, it is basically menus that you choose by the number the option you want. Real simple and integrates small but useful terminal tools with powerful GUI networking tools like Wireshark & Aircrack-ng, with automations and logging.
+This toolkit is intended to provide convenience, productivity, and simplicity for networking professionals, or individuals new to the subject, or generally anyone who wants to secure and maintain a network. Once you are inside the toolkit's interface, it is basically menus that you choose by the number of the option you want. Real simple and integrates small but useful terminal tools with powerful GUI networking tools like Wireshark & Aircrack-ng, with automations and logging.
 
 ## Features
 - Popular network protocol and packet analysis tools!
-- Setup script that automatically sets you up with all the tools used by the toolkit.
+- Setup a script that automatically sets you up with all the tools used by the toolkit.
 - Over 15 terminal-based tools on demand from the toolkit menu options.
-- Automatically detects wireless interface and displays on main menu
+- Automatically detects wireless interface and displays on the main menu
 - Automatically check if you are in monitor mode and enables when running a tool that requires monitor mode.
 - Main menu features a submenu for terminal tools, wireless tools, and GUI tools
 - integrates terminal tools, wireless tools, and GUI tools by automating transfers of information between them to run themselves.
@@ -28,4 +28,4 @@ This toolkit is intended to provide convenience, productivity, and simplicity fo
 ![screen](https://github.com/user-attachments/assets/8393345e-1760-45a5-bccd-83e9b2cd9db5)
 
 
-### IF you enjoyed or appreciate this toolkit at all, let me know by giving it a star and optionally, I'd really appreciate some feedback on it if you feel up to it. Thanks!
+### If you enjoyed or appreciate this toolkit at all, let me know by giving it a star, and, optionally, I'd really appreciate some feedback if you feel up to it. Thanks!
