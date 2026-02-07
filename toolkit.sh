@@ -26,12 +26,17 @@ RESET="\e[0m"
 CONFIG_DIR="${HOME}/.network-toolkit"
 LOG_DIR="${CONFIG_DIR}/logs"
 CUSTOM_CMD_FILE="${CONFIG_DIR}/custom_commands.txt"
-
 DEFAULT_NET_IFACE=""
 DEFAULT_WLAN_IFACE=""
 COLOR_THEME="light"  # placeholder toggle
-
 DATA_DIR="${CONFIG_DIR}/data"
+AUDIT_REPORT="${DATA_DIR}/security_audit.txt"
+AUDIT_XML="${DATA_DIR}/audit_nmap.xml"
+HTTP_AUDIT_REPORT="${DATA_DIR}/http_security_audit.txt"
+HOST_DEEP_XML="${DATA_DIR}/host_deep_scan.xml"
+HOST_DEEP_REPORT="${DATA_DIR}/host_deep_scan.txt"
+DNS_HEALTH_REPORT="${DATA_DIR}/dns_health_check.txt"
+
 
 mkdir -p "${LOG_DIR}"
 
@@ -434,17 +439,328 @@ full_recon() {
 
     # 4. Auto-launch Zenmap if available
     if command -v zenmap >/dev/null 2>&1; then
-        local xml="${DATA_DIR}/nmap_last.xml"
-        if [[ -f "$xml" ]]; then
-            print_status "Launching Zenmap with latest Nmap results..."
-            zenmap --import "$xml" &
+        print_status "Launching Zenmap with scan results..."
+        xdg-open "$HOST_DEEP_XML" &
+    else
+        print_error "Zenmap not installed."
+    fi
+        
+    pause
+}
+
+protocol_security_audit() {
+	print_banner
+	echo -e "${BOLD}Protocol Security Audit${RESET}"
+	echo
+	echo "Scan a single host or an entire subnet?"
+	echo "1) Single host"
+	echo "2) Subnet"
+	echo
+	read -rp "Select an option (1-2): " mode
+
+	local target
+	case "$mode" in
+		1)
+			read -rp "Enter host (e.g. 192.168.1.10): " target
+			;;
+		2)
+			read -rp "Enter subnet (e.g. 192.168.1.0/24): " target
+			;;
+		*)
+			print_error "Invalid option."
+			pause
+			return
+			;;
+	esac
+
+	 -z "$target"  && { print_error "Target required."; pause; return; }
+
+	print_status "Running Nmap vulnerability and version scan..."
+	nmap -sV --script vuln "$target" -oX "$AUDIT_XML" > /dev/null 2>&1
+
+	print_ok "Scan complete. Parsing results..."
+	sleep 1
+
+	# Start building the report
+	{
+		echo "======================================"
+		echo "      Protocol Security Audit"
+		echo "======================================"
+		echo "Target: $target"
+		echo "Date: $(date)"
+		echo
+		echo "========== SUMMARY =========="
+	} > "$AUDIT_REPORT"
+
+	# Summary section
+	if grep -qi "vuln" "$AUDIT_XML"; then
+		echo "- Potential vulnerabilities detected" >> "$AUDIT_REPORT"
+	else
+		echo "- No major vulnerabilities detected" >> "$AUDIT_REPORT"
+	fi
+
+	# Weak protocol checks
+	echo >> "$AUDIT_REPORT"
+	echo "Weak or Insecure Protocols:" >> "$AUDIT_REPORT"
+
+	declare -A weak_protocols=(
+		["Telnet"]="23"
+		["FTP"]="21"
+		["HTTP (no TLS)"]="80"
+		["SMBv1"]="445"
+		["RSH"]="514"
+		["SNMP v1/v2"]="161"
+		["VNC (unencrypted)"]="5900"
+		["RDP"]="3389"
+	)
+
+	for proto in "${!weak_protocols[@]}"; do
+		port="${weak_protocols[$proto]}"
+		if grep -q "portid=\"$port\"" "$AUDIT_XML"; then
+			echo "- $proto detected on port $port" >> "$AUDIT_REPORT"
+		fi
+	done
+
+	# Detailed section
+	{
+		echo
+		echo "========== DETAILED FINDINGS =========="
+		echo
+		echo "Service and Version Information:"
+		echo "--------------------------------"
+	} >> "$AUDIT_REPORT"
+
+	# Extract service/version info
+	xmllint --xpath "port/service/@name | port/service/@version" "$AUDIT_XML" 2>/dev/null \
+		| sed 's/name=/\nService: /g; s/version=/ Version: /g' >> "$AUDIT_REPORT"
+
+	{
+		echo
+		echo "Vulnerability Script Output:"
+		echo "--------------------------------"
+	} >> "$AUDIT_REPORT"
+
+	# Extract vuln script output
+	xmllint --xpath "//script[@id='vuln']" "$AUDIT_XML" 2>/dev/null \
+		| sed 's/<[^>]*>//g' >> "$AUDIT_REPORT"
+
+	print_ok "Audit report saved to: $AUDIT_REPORT"
+
+	# Auto-launch Zenmap
+	if command -v zenmap >/dev/null 2>&1; then
+	    print_status "Launching Zenmap with audit results..."
+	    zenmap "$AUDIT_XML" &
+	else
+		print_error "Zenmap not installed."
+	fi
+
+	pause
+}
+
+http_security_audit() {
+    print_banner
+    echo -e "${BOLD}HTTP Security Audit${RESET}"
+    echo
+    read -rp "Enter target (domain or URL, e.g. https://example.com): " target
+
+    [[ -z "$target" ]] && { print_error "Target required."; pause; return; }
+
+    print_status "Fetching HTTP response headers..."
+    # -I = headers only, -L = follow redirects, -k = allow self-signed, -sS = silent but show errors
+    headers=$(curl -I -L -k -sS "$target")
+    if [[ -z "$headers" ]]; then
+        print_error "No headers received. Check connectivity or URL."
+        pause
+        return
+    fi
+
+    mkdir -p "${DATA_DIR}"
+    {
+        echo "======================================"
+        echo "        HTTP Security Audit"
+        echo "======================================"
+        echo "Target: $target"
+        echo "Date:   $(date)"
+        echo
+        echo "========== RAW HEADERS =========="
+        echo "$headers"
+        echo
+        echo "========== SUMMARY =========="
+    } > "$HTTP_AUDIT_REPORT"
+
+    # Helper to check presence of a header
+    check_header() {
+        local name="$1"
+        local pattern="$2"
+        if echo "$headers" | grep -qi "^$pattern:"; then
+            echo "- $name: PRESENT" >> "$HTTP_AUDIT_REPORT"
         else
-            print_error "Nmap XML file not found."
+            echo "- $name: MISSING" >> "$HTTP_AUDIT_REPORT"
         fi
+    }
+
+    check_header "Strict-Transport-Security (HSTS)" "Strict-Transport-Security"
+    check_header "Content-Security-Policy (CSP)" "Content-Security-Policy"
+    check_header "X-Frame-Options" "X-Frame-Options"
+    check_header "X-Content-Type-Options" "X-Content-Type-Options"
+    check_header "Referrer-Policy" "Referrer-Policy"
+    check_header "Permissions-Policy" "Permissions-Policy"
+    check_header "X-XSS-Protection (legacy)" "X-XSS-Protection"
+
+    {
+        echo
+        echo "========== DETAILS & NOTES =========="
+        echo "- HSTS helps enforce HTTPS and prevent downgrade attacks."
+        echo "- CSP can mitigate XSS by controlling allowed sources."
+        echo "- X-Frame-Options / frame-ancestors help prevent clickjacking."
+        echo "- X-Content-Type-Options=nosniff prevents MIME sniffing."
+        echo "- Referrer-Policy controls how much referrer info is leaked."
+        echo "- Permissions-Policy limits powerful browser features (camera, mic, etc.)."
+        echo
+        echo "Review the missing headers above and consider adding them on the server."
+    } >> "$HTTP_AUDIT_REPORT"
+
+    print_ok "HTTP security audit saved to: $HTTP_AUDIT_REPORT"
+    pause
+}
+
+host_deep_scan() {
+    print_banner
+    echo -e "${BOLD}Host Deep Scan${RESET}"
+    echo
+    read -rp "Enter target host (IP or hostname): " target
+    [[ -z "$target" ]] && { print_error "Target required."; pause; return; }
+
+    print_status "Running deep Nmap scan (version, OS, scripts, traceroute)..."
+    nmap -A -T4 "$target" -oX "$HOST_DEEP_XML" > /dev/null 2>&1
+
+    if [[ ! -s "$HOST_DEEP_XML" ]]; then
+        print_error "Scan failed or produced no output."
+        pause
+        return
+    fi
+
+    {
+        echo "======================================"
+        echo "            Host Deep Scan"
+        echo "======================================"
+        echo "Target: $target"
+        echo "Date:   $(date)"
+        echo
+        echo "========== SUMMARY =========="
+    } > "$HOST_DEEP_REPORT"
+
+    # Basic summary: up/down and open ports count
+    up=$(xmllint --xpath "string(//host/status/@state)" "$HOST_DEEP_XML" 2>/dev/null)
+    echo "- Host state: ${up:-unknown}" >> "$HOST_DEEP_REPORT"
+
+    open_ports=$(xmllint --xpath "count(//port[state/@state='open'])" "$HOST_DEEP_XML" 2>/dev/null)
+    echo "- Open ports: ${open_ports:-0}" >> "$HOST_DEEP_REPORT"
+
+    {
+        echo
+        echo "========== SERVICES =========="
+        echo
+    } >> "$HOST_DEEP_REPORT"
+
+    xmllint --xpath "//port[state/@state='open']" "$HOST_DEEP_XML" 2>/dev/null \
+        | sed 's/<port /\n<port /g' \
+        | sed -n 's/.*portid=\"\([0-9]*\)\" protocol=\"\([a-z]*\)\".*/Port \1 (\2):/p' >> "$HOST_DEEP_REPORT"
+
+    {
+        echo
+        echo "========== OS & EXTRA INFO =========="
+        echo
+    } >> "$HOST_DEEP_REPORT"
+
+    xmllint --xpath "string(//os/osmatch[1]/@name)" "$HOST_DEEP_XML" 2>/dev/null \
+        | sed 's/^/Detected OS: /' >> "$HOST_DEEP_REPORT"
+
+    {
+        echo
+        echo
+        echo "========== RAW NMAP DETAILS =========="
+        echo "For full details, open this XML in Zenmap or a viewer:"
+        echo "$HOST_DEEP_XML"
+    } >> "$HOST_DEEP_REPORT"
+
+    print_ok "Host deep scan report saved to: $HOST_DEEP_REPORT"
+
+    if command -v zenmap >/dev/null 2>&1; then
+        print_status "Launching Zenmap with host deep scan results..."
+        xdg-open "$HOST_DEEP_XML" &
     else
         print_error "Zenmap not installed."
     fi
 
+    pause
+}
+
+dns_health_check() {
+    print_banner
+    echo -e "${BOLD}DNS Health Check${RESET}"
+    echo
+    read -rp "Enter domain (e.g. example.com): " domain
+    [[ -z "$domain" ]] && { print_error "Domain required."; pause; return; }
+
+    print_status "Running DNS queries..."
+
+    {
+        echo "======================================"
+        echo "           DNS Health Check"
+        echo "======================================"
+        echo "Domain: $domain"
+        echo "Date:   $(date)"
+        echo
+        echo "========== SUMMARY =========="
+    } > "$DNS_HEALTH_REPORT"
+
+    {
+        echo
+        echo "A / AAAA Records:"
+        echo "-----------------"
+        dig +short A "$domain"
+        dig +short AAAA "$domain"
+
+        echo
+        echo "MX Records:"
+        echo "-----------"
+        dig +short MX "$domain"
+
+        echo
+        echo "NS Records:"
+        echo "-----------"
+        dig +short NS "$domain"
+
+        echo
+        echo "SOA Record:"
+        echo "-----------"
+        dig +short SOA "$domain"
+
+        echo
+        echo "Reverse Lookup (if applicable):"
+        echo "-------------------------------"
+        ip=$(dig +short A "$domain" | head -n1)
+        if [[ -n "$ip" ]]; then
+            dig +short -x "$ip"
+        else
+            echo "No A record found; reverse lookup skipped."
+        fi
+
+        echo
+        echo "DNSSEC Status:"
+        echo "--------------"
+        dig +dnssec +short "$domain" | grep -qi "RRSIG" && echo "DNSSEC: PRESENT" || echo "DNSSEC: NOT DETECTED"
+
+        echo
+        echo "Notes:"
+        echo "------"
+        echo "- Ensure MX and NS records point to valid, reachable servers."
+        echo "- Consider enabling DNSSEC if not present."
+        echo "- Verify SOA values (serial, refresh, retry, expire) match your DNS policy."
+    } >> "$DNS_HEALTH_REPORT"
+
+    print_ok "DNS health report saved to: $DNS_HEALTH_REPORT"
     pause
 }
 
@@ -680,13 +996,21 @@ advanced_options_menu() {
         echo -e "${BOLD}Advanced Options${RESET}"
         echo
         echo "1) Full Recon (Ping → ARP → Nmap → Zenmap)"
-        echo "2) Back to Main Menu"
+        echo "2) Protocol Security Audit"
+	echo "3) HTTP Security Audit"
+	echo "4) Host Deep Scan"
+	echo "5) DNS Health Check"
+	echo "6) Back to Main Menu"
         echo
-        read -rp "Select an option (1-2): " choice
+	read -rp "Select an option (1-6): " choice
 
         case "$choice" in
             1) full_recon ;;
-            2) break ;;
+            2) protocol_security_audit ;;
+	    3) http_security_audit ;;
+	    4) host_deep_scan ;;
+	    5) dns_health_check ;;
+	    6) return ;;
             *) print_error "Invalid option."; sleep 1 ;;
         esac
     done

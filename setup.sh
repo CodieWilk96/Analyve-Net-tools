@@ -69,3 +69,22 @@ echo "Run the toolkit with: ./toolkit.sh"
 echo "Run custom commands anywhere with: toolkit <shortcut>"
 echo
 
+echo "[*] Installing Zenmap (Nmap GUI)..."
+
+# Download the official Zenmap .deb for Ubuntu/Debian
+ZENMAP_DEB="zenmap_7.94-1_all.deb"
+ZENMAP_URL="https://nmap.org/dist/$ZENMAP_DEB"
+
+# Download if not already present
+if [ ! -f "$ZENMAP_DEB" ]; then
+    wget "$ZENMAP_URL" -O "$ZENMAP_DEB"
+fi
+
+# Install dependencies
+sudo apt install -y python3-gi python3-gtk2 python3-lxml
+
+# Install Zenmap
+sudo dpkg -i "$ZENMAP_DEB" || sudo apt --fix-broken install -y
+
+echo "[+] Zenmap installation complete."
+
