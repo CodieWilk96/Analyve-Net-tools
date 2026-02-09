@@ -30,4 +30,4 @@ This toolkit is intended to provide convenience, productivity, and simplicity fo
 
 ### If you enjoyed or appreciate this toolkit at all, let me know by giving it a star, and, optionally, I'd really appreciate some feedback if you feel up to it. Thanks!
 
-#version3 #readmefile #network-toolkit
+#version1.0.0 #readmefile #network-toolkit
